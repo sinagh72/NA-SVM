@@ -11,6 +11,88 @@ include("../../src_new/ipqp.jl")
 include("../../src/Utils/src/createTable.jl")
 
 
+# x1 = [ 1.59405  4.2065
+#  3.63758  3.26835
+#  2.7821   5.10454
+#  3.75954  4.04459];
+
+#  x2 = [-0.578863   1.32849
+#   0.776838   0.084364
+#   0.857263   2.49895
+#   0.0582129  1.88935];
+
+# x1 = Float64[1 1
+# 1 2
+#   1 3
+# 1 4];
+# x2 = Float64[-1 -1
+# -1 -2
+# -1 -3
+# -1 -4];
+
+
+
+# x1 = [2.53901 3.44551
+# 3.62893 3.38145
+# 4.68039 2.70013
+# 3.39256 3.71651
+# 5.22046 3.60685
+# 2.99639 2.02983
+# 1.11872 4.62293];
+
+# x2 = [-3.55557 -1.67534
+# -2.26619 -2.55195
+# -2.60944 -2.44757
+# -3.40818 -0.532436
+# -1.87657 -5.45636
+# -2.73415 -1.41148
+# -5.34419 -2.62808];
+
+# Plots.scatter(x1[:,1],x1[:,2], color="blue", label="class1")
+# Plots.xlabel!("x");
+# Plots.ylabel!("y");
+# Plots.scatter!(x2[:,1],x2[:,2], color="red", label="class2")
+
+
+# t1 = Z[1:Int(n/2),:];
+# t2 = Z[Int(n/2)+1:end,:];
+
+# Plots.scatter(t1[:,1],t1[:,2], color="blue", label="class1")
+# Plots.xlabel!("x");
+# Plots.ylabel!("y");
+# Plots.scatter!(t2[:,1],t2[:,2], color="red", label="class2")
+# xx = -10:0.2:10;
+# mD = (-w[1]/w[2])*xx .- (standard_part(b)/w[2]);
+# sv1 = (-w[1]/w[2])*xx .+ (1-standard_part(b)/w[2]);
+# sv2 = (-w[1]/w[	2])*xx .+ (-1-standard_part(b)/w[2]);
+# Plots.plot!(xx,mD, lw=2, label="Margin")
+# Plots.plot!(xx, sv1,lw=2, label="SV1")
+# Plots.plot!(xx, sv2,lw=2, label="SV2")
+
+# Plots.scatter!(x1_test[:,1],x1_test[:,2],color="green", label="x1_test")
+# Plots.scatter!(x2_test[:,1],x2_test[:,2],color="pink", label="x2_test")
+
+# test_size = 1;
+# test_set = [sample_generator(test_size, 1) sample_generator(test_size, 1)];
+# Plots.scatter!(x2_test[:,1],x2_test[:,2],color="black", label="x2_test")
+# decision_value(test_set, X,y,lambdas,w, b)
+
+
+
+function pllot(c1, c2, w, b)
+	Plots.scatter(c1[:,1],c1[:,2], color="blue", label="class1")
+	Plots.xlabel!("x");
+	Plots.ylabel!("y");
+	Plots.scatter!(c2[:,1],c2[:,2], color="red", label="class2")
+	xx = 0:0.1:1;
+	mD = standard_part(-w[1]/w[2]).*xx .- standard_part(b/w[2]);
+	sv1 = standard_part(-w[1]/w[2]).*xx .+ standard_part((1-b)/w[2]);
+	sv2 = standard_part(-w[1]/w[2]).*xx .+ standard_part((-1-b)/w[2]);
+	# Plots.plot!(standard_part(mD) ,lw=2, label="Margin")
+	# Plots.plot!(standard_part(sv1),lw=2, label="SV1")
+	# Plots.plot!(standard_part(sv2),lw=2, label="SV2")
+	mD, sv1, sv2
+end
 
 #####================================================================random sample
 using Distributions: Normal
