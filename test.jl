@@ -1,4 +1,3 @@
-
 include("src/ArithmeticNonStandarNumbersLibrary/src/BAN.jl")
 include("src_new/ipqp.jl")
 # include("src/Utils/src/createTable.jl")
@@ -12,6 +11,9 @@ using MLJ
 using DataFrames
 using VegaLite
 using JLD2
+using LIBSVM
+using Statistics
+using XLSX
 
 function _kernel(x, y; kernel::String="linear", π::Float64=1.0, γ::Float64=1.0, ξ::Float64=1.0,
     κ::Float64=1.0, σ::Float64=1.0)
@@ -65,11 +67,16 @@ function accuracy(x_test, y_test, x_train, y_train, lambdas, w, b, kernel, γ)
 	n = length(x_test[:,1]);
 	res = 0;
 	for i ∈ 1:n
-		if sign((decision_value(x_test[i,:], x_train, y_train, lambdas, w, b, kernel, γ)[1])) == y_test[i]
+		pred = sign((decision_value(x_test[i,:], x_train, y_train, lambdas, w, b, kernel, γ)[1]))
+		if  pred == y_test[i]
 			res += 1;
 		else
-			print("wrong prediction index: ")
-			println(i);
+			print("wrong prediction: ")
+			print(x_test[i,:]);
+			print(",  Label: ");
+			print(y_test);
+			print(",  predicted: ");
+			println(pred);
 		end
 	end
 	res /= n;
@@ -84,7 +91,7 @@ function pplot(x1, x2)
 
 end
 
-function fit(X, y, idx::Integer; C::Real=1.0, tol::Real=1e-7, maxit::Integer=30, kernel::String="linear", 
+function fit(X, y, idx::Integer; C::Real=1.0, tol::Real=1e-8, maxit::Integer=30, kernel::String="linear", 
     π::Float64=1.0, γ::Float64=1.0, ξ::Float64=1.0,
     κ::Float64=1.0, σ::Float64=1.0, verbose::Bool=false, genLatex::Bool=false)
 
@@ -113,7 +120,7 @@ function fit(X, y, idx::Integer; C::Real=1.0, tol::Real=1e-7, maxit::Integer=30,
 		end
 	end
 
-	sol = ipqp(A,b,c,Q, tol; maxit=maxit, verbose=false, genLatex=false, slack_var=n:2n+1);
+	sol = ipqp(A,b,c,Q, tol; maxit=maxit, verbose=verbose, genLatex=genLatex, slack_var=n:2n+1);
 	
 	
 	lambdas = map(i -> standard_part(denoise(i,1e-4)), sol.x[1:n]);
@@ -160,17 +167,15 @@ function preprocess(x_train, x_test; normalize::Bool=true, standardize::Bool=fal
 	round.(x_train, digits=8), round.(x_test, digits=8)
 end
 #accessible feature index 1:idx
-function testing(t, C, nx1, nx2, x1, x2; idx=1, normalize=false, standardize=false,kernel="linear", γ=1.0)
+function testing(t, C, nx1, nx2, x1, x2; idx=1, normalize=false, standardize=false,kernel="linear", γ=1.0, tol=1e-8)
 	results = zeros(t,6); #valid, # not converged, # lambdas < 2,scored/folds, score/valid, b, score
 	dim = length(x1[1][1,1:end-1]);
 	w = convert(Matrix{Ban}, zeros(t,dim));
 	b = convert(Vector{Ban}, zeros(t));
 
-	convert(Vector{Ban},zeros(t));
 	for j in 1:t
-		tol = 1e-8;
-
-		X = shuffleobs([x1[j];x2[j]], obsdim=1);
+		# X = shuffleobs([x1[j];x2[j]], obsdim=1);
+		X = [x1[j];x2[j]];
 
 		y = X[:,end];
 		X = X[:,1:end-1];
@@ -187,7 +192,6 @@ function testing(t, C, nx1, nx2, x1, x2; idx=1, normalize=false, standardize=fal
 			C=C, tol=tol, verbose=false, kernel=kernel, γ=γ);
 			if sol.flag == false
 				n_cons += 1;
-				
 				println()
 				continue
 			elseif length(lam_idx) < 2
@@ -211,79 +215,115 @@ function testing(t, C, nx1, nx2, x1, x2; idx=1, normalize=false, standardize=fal
 	end
 	results, w, b
 end
+function testing_standard(t, C, nx1, nx2, x1, x2, idx; normalize=false, standardize=false,kernel=Kernel.Linear, γ=1.0, tol=1e-8)
+	results = zeros(t,2); #valid, # not converged, # lambdas < 2,scored/folds, score/valid, b, score
+	# w = zeros(t,dim);
+	# b = zeros(t);
 
+	for j in 1:t
 
-idx = 1;
+		# X = shuffleobs([x1[j];x2[j]], obsdim=1);
+		X = [x1[j];x2[j]];
 
-t = 10;
-x51 = Vector{Matrix}(undef, t);
-x52 = Vector{Matrix}(undef, t);
+		y = X[:,end];
+		X = X[:,1:idx];
+		
+		folds = 10;
+		train_idx, val_idx = kfolds(nx1+nx2, folds);
 
-x61 = Vector{Matrix}(undef, t);
-x62 = Vector{Matrix}(undef, t);
+		score = 0;
+		valid = 0;
+		for i ∈ 1:folds
+			x_train, x_test = preprocess(X[train_idx[i],:], X[val_idx[i],:]; normalize=normalize, standardize=standardize);
+			model = svmtrain(x_train', y[train_idx[i]]; svmtype=LIBSVM.SVC,kernel=kernel, gamma=γ, cost=C, tolerance=tol);
+			ŷ, decision_values = svmpredict(model, x_test');
+			score += mean(ŷ .== y[val_idx[i]]);
+			valid += 1;
+		end
+		results[j,1] = valid;
+		results[j,2] = score/valid;
+		# b[j] /= valid;
+		# w[j,:] ./= valid;
+
+	end
+	# results, w, b
+	results
+end
+
+idx = 2; #max col indx of accessibles 
+t = 1; #number of training samples
+
+# x11 = Vector{Matrix}(undef, t);
+# x22 = Vector{Matrix}(undef, t);
+
+x1 = Vector{Matrix}(undef, t);
+x2 = Vector{Matrix}(undef, t);
 
 nx1 = 5;
 nx2 = 5;
 
-x1 = load_object("linear_testcase4_10-2_x1.jld2");
-x2 = load_object("linear_testcase4_10-2_x2.jld2");
+x1 = load_object("data/linear_testcase1_5-2_x1.jld2");
+x2 = load_object("data/linear_testcase1_5-2_x2.jld2");
 for i ∈ 1:t
-	# x1[i] = [sample_generator(nx1, 1, 2, 5) sample_generator(nx1, 1, 2, 5) ones(nx1)];
-	# x2[i] = [sample_generator(nx1, 1, -3, 5) sample_generator(nx1, 1, -3, 5) -ones(nx2)];
-	d1 = sample_generator(nx1, 1, 10, 3);
-	d2 = sample_generator(nx1, 1, -10, 3);
-	x61[i] = [x1[i][:,1:end-1]  d1 sample_generator(nx1, 1, 0, 5) x1[i][:,end]];
-	x62[i] = [x2[i][:,1:end-1]  d2 sample_generator(nx2, 1, 0, 5) x2[i][:,end]];
+	# x1[i] = [sample_generator(nx1, 1, 2, 1)  sample_generator(nx1, 1, -2, 1)  sample_generator(nx1, 1, 10, 3)  ones(nx1)];
+	# x2[i] = [sample_generator(nx2, 1, -3, 5) sample_generator(nx2, 1, -3, 5)  sample_generator(nx2, 1, -10, 3) -ones(nx2)];
+	d1 = sample_generator(nx1, 1, 0, 5);
+	d2 = sample_generator(nx1, 1, -3, 5);
+	x11[i] = [x1[i][:,1:end-1]  d1  x1[i][:,end]];
+	x22[i] = [x2[i][:,1:end-1]  d2  x2[i][:,end]];
 
-	x51[i] = [x1[i][:,1:end-1] d1  x1[i][:,end]];
-	x52[i] = [x2[i][:,1:end-1] d2 x2[i][:,end]];
-
+	# x51[i] = [x1[i][:,1:end-1] d1  x1[i][:,end]];
+	# x52[i] = [x2[i][:,1:end-1] d2 x2[i][:,end]];
 end
-nx1 = 10;
-nx2 = 10;
-# save_object("linear_testcase5_10-2_x1.jld2",x51);
-# save_object("linear_testcase5_10-2_x2.jld2",x52);
-# save_object("linear_testcase6_10-2_x1.jld2",x61);
-# save_object("linear_testcase6_10-2_x2.jld2",x62);
-x1 = load_object("linear_testcase4_10-2_x1.jld2");
-x2 = load_object("linear_testcase4_10-2_x2.jld2");
+# save_object("data/linear_testcase2_10-2_x1.jld2",x11);
+# save_object("data/linear_testcase2_10-2_x2.jld2",x22);
+# save_object("data/linear_testcase2_5-2_x1.jld2",x11);
+# save_object("data/linear_testcase2_5-2_x2.jld2",x22);
+# x1 = load_object("data/linear_testcase1_10-2_x1.jld2");
+# x2 = load_object("data/linear_testcase1_10-2_x2.jld2");
 
-res, w, b = testing(t, 10, nx1, nx2, x1, x2; idx=idx, normalize=true, standardize=false);
-res
-b[isnan.(b)] .= Ban(0);
-w[isnan.(w[:,1]),1] .= Ban(0);
-w[isnan.(w[:,2]),2] .= Ban(0);
-# w[isnan.(w[:,3]),3] .= Ban(0);
-# w[isnan.(w[:,4]),4] .= Ban(0);
-
+res, w, b = testing(t, 10.0, nx1, nx2, x1, x2; idx=idx, normalize=false, standardize=true, tol=1e-8);
 w
 b
 
-mean(w[:,1])
-mean(w[:,2])
-# mean(w[:,3])
-# mean(w[:,4])
-mean(b)
+b[isnan.(b)] .= Ban(0);
+w[isnan.(w[:,1]),1] .= Ban(0);
+w[isnan.(w[:,2]),2] .= Ban(0);
+w[isnan.(w[:,3]),3] .= Ban(0);
+w[isnan.(w[:,4]),4] .= Ban(0);
 
-  
-m = mean(acc);
-st = std(acc);
-ci = 2*st/sqrt(t)
-nx1 = 5;
-nx2 = 5;
+res2 = testing_standard(t, 10.0, nx1, nx2, x1, x2, idx; normalize=false, standardize=true, tol=1e-8);
+res2[:,2]
+mean(res2[:,2])
 
-a = [1;2]
-c = [2;3]
-a+c
+XLSX.openxlsx("temp.xlsx", mode="w") do xf
+    sheet = xf[1];
+    # XLSX.rename!(sheet, "new_sheet");
+    # sheet["A1"] = "this"
+    # sheet["A2"] = "is a"
+    # sheet["A3"] = "new file"
+    # sheet["A4"] = 100
 
-for i ∈ 1:t
-	X, y = make_circles(nx1+nx2; noise=0.05, factor=0.3, as_table=false);
-	y[y.==0] .= -1;
-	x1[i] = [X[1:nx1,:] y[1:nx1]];
-	x2[i] = [X[nx1+1:end,:] y[nx1+1:end]];
+    # will add a row from "A5" to "E5"
+    # will add a column from "B1" to "B4"
+    sheet["A1", dim=1] = res[:,1];
+    sheet["B1", dim=1] = res[:,2];
+    sheet["C1", dim=1] = res[:,3];
+    # sheet["A4", dim=1] = b
+    # sheet["A5", dim=1] = w
+    sheet["D1", dim=1] = res[:,4];
+    sheet["E1", dim=1] = res[:,5];
+    sheet["F1", dim=1] = res2[:,2];
 end
 
-acc = run(t, 1, nx1, nx2, x1, x2, "rbf", 1.0, false, true);
-m = mean(acc)
-st = std(acc);
-ci = 2*st/sqrt(t)
+
+w
+b
+# mean(w[:,1])
+# mean(w[:,2])
+# mean(w[:,3])
+# mean(w[:,4])
+# mean(b)
+
+# save_object("data/linear_testcase1_5-2_x1.jld2",x1);
+# save_object("data/linear_testcase1_5-2_x2.jld2",x2);
