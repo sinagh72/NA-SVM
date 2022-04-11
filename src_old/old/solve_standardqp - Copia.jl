@@ -1,21 +1,35 @@
+# STRONG ASSUMPTION: only underflows, never overflows of magnitude
+
 function solve_standardqp(A,b,c,Q, tol=1e-8, maxit=100; verbose=false, genLatex=false, slack_var=[])
 
 	###########################
 	# compute round tresholds #
 	###########################
 
+	# Needed to avoid noise of secondary gradients
+
     m,n = size(A)
+
 	min_deg_Q = minimum(map(x->min_degree(x), Q))
-	min_deg_A = minimum(map(x->min_degree(x), A))
 	min_deg_c = minimum(map(x->min_degree(x), c))
+
+	min_deg_A = minimum(map(x->min_degree(x), A))
 	min_deg_b = minimum(map(x->min_degree(x), b))
+
+	max_deg_Q = maximum(map(x->degree(x), Q))
+	max_deg_c = maximum(map(x->degree(x), c))
+
+	max_deg_A = maximum(map(x->degree(x), A))
+	max_deg_b = maximum(map(x->degree(x), b))
+
+	levels_dual = maximum([max_deg_Q-min_deg_Q, max_deg_c-min_deg_c, max_deg_Q-min_deg_c, max_deg_c-min_deg_Q])+1
+	levels_prim = maximum([max_deg_A-min_deg_A, max_deg_b-min_deg_b, max_deg_A-min_deg_b, max_deg_b-min_deg_A])+1
+
+	n_levels_max = max(levels_prim, levels_dual)
 	
-	trash_deg_r1 = min(min_deg_A, min_deg_b)-1;
-	trash_deg_r2 = min(min_deg_Q, min_deg_A, min_deg_c)-1;
-	trash_deg = min(trash_deg_r2, min_deg_b);
-	
-	max_deg_Q = maximum(map(x->degree(x), Q))-1
-	max_deg_c = maximum(map(x->degree(x), c))-1
+	trash_deg_b = max_deg_b-n_levels_max # max_deg_b-levels_prim
+	trash_deg_c = max_deg_c-n_levels_max # max_deg_c-levels_dual
+	trash_deg_xs = 2
 	
 	#####################
 	# garbage variables #
@@ -39,43 +53,47 @@ function solve_standardqp(A,b,c,Q, tol=1e-8, maxit=100; verbose=false, genLatex=
 	rc_den = norm(c);
 	rc_den += magnitude(rc_den);
 	
-	linear = (all(x->x==0, Q)) ? true : false
+	#linear = (all(x->x==0, Q)) ? true : false
+	linear = false
 	
 	###############
 	# Standardize #
 	###############
-	
-	Q_true = copy(Q)
-	c_true = copy(c)
-	
-	_Q = map(x->retrieve_infinitesimals(x, max_deg_Q), Q)
-	_c = map(x->retrieve_infinitesimals(x, max_deg_c), c)
-	
-	Q -= _Q
-	c -= _c
 	
 	n_levels = 1
 	
 	#################
     # initial value #
 	#################
+    
+    x,λ,s = starting_point(A,b,c,Q, tol)
 
-    x,λ,s = starting_point(A,b,c,Q)
-	
+	println("")
+	println(x)
+	println("")
+	println(s)
+	println("")
+
 	x = map(x->principal(x), x)
 	s = map(x->principal(x), s)
 	λ = map(x->principal(x), λ)
-	
+
 	x_deg = map(x->degree(x), x)
 	s_deg = map(x->degree(x), s)
+	
+	println("")
+	println(x)
+	println("")
+	println(s)
+	println("")
 
 	if genLatex
-		println("\t\\textbf{iter} & \$\\bm{\\mu}\$ & \$\\bm{x}\$ & \$\\bm{c^Tx}\$\\\\");
+		println("\t\\textbf{iter} & \$\\bm{\\mu}\$ & \$\\bm{x}\$ & \$\\bm{f(x)}\$\\\\");
 		println("\t\\hline");
-		print("\t$(iter) & \$"); print_latex(mean(x.*s)); print("\$ & \$"); print_latex(x[var_to_show]); print("\$ & \$"); print_latex(0.5*(x'*Q_true*x)+dot(c_true, x)); println("\$ \\\\");
+		print("\t$(iter) & \$"); print_latex(mean(x.*s)); print("\$ & \$"); print_latex(x[var_to_show]); print("\$ & \$"); print_latex(0.5*(x'*Q*x)+dot(c, x)); println("\$ \\\\");
 		println("\t\\hline");
     elseif verbose
-        print(iter); print(" "); print(mean(x.*s)); print(" "); print(norm([A'*λ + s + Q_true*x - c_true; A*x - b; x.*s])/norm([b;c_true])); print(" "); println("0., 0."); 
+        print(iter); print(" "); print(mean(x.*s)); print(" "); print(norm([A'*λ + s + Q*x - c; A*x - b; x.*s])/norm([b;c])); print(" "); println("0., 0."); 
     end
 
     for iter=1:maxit
@@ -90,12 +108,19 @@ function solve_standardqp(A,b,c,Q, tol=1e-8, maxit=100; verbose=false, genLatex=
 		
 		rb = denoise(rb, tol)
 		rc = denoise(rc, tol)
+		
+		
+		rb -= retrieve_infinitesimals(rb, trash_deg_b)
+		rc -= retrieve_infinitesimals(rc, trash_deg_c)
+		# in NAQP a minimum meaningful degree for rxs (i.e., μ) does not exists
+		# To avoid numerical instabilities, two monosemia are kept for each entry in rxs
+		rxs -= parametric_retrieve_infinitesimals(rxs, trash_deg_xs)
 
-		#rb -= retrieve_infinitesimals(rb, trash_deg_r1)
-		rb -= retrieve_infinitesimals(rb, trash_deg)
-		#rc -= retrieve_infinitesimals(rc, trash_deg_r2)
-		rc -= retrieve_infinitesimals(rc, trash_deg)
-		rxs -= retrieve_infinitesimals(rxs, trash_deg)
+		#=
+		rb -= parametric_retrieve_infinitesimals(rb, n_levels)
+		rc -= parametric_retrieve_infinitesimals(rc, n_levels)
+		rxs -= parametric_retrieve_infinitesimals(rxs, n_levels)
+		=#
 
 		if show_more
 			print("rb: "); println(norm(rb))
@@ -106,40 +131,43 @@ function solve_standardqp(A,b,c,Q, tol=1e-8, maxit=100; verbose=false, genLatex=
 		
 		f3 = fact3(A,Q,x,s)
 		
-        λ_aff,x_aff,s_aff = solve3(f3,rb,rc,rxs)		
-		
-		# x_aff = map(x->principal(x), x_aff)
-		# s_aff = map(x->principal(x), s_aff)
-		# λ_aff = map(x->principal(x), λ_aff)
-		
-		x_aff -= retrieve_infinitesimals(x_aff, -n_levels)
-		s_aff -= retrieve_infinitesimals(s_aff, -n_levels)
-		λ_aff -= retrieve_infinitesimals(λ_aff, -n_levels)
+        λ_aff,x_aff,s_aff = solve3(f3,rb,rc,rxs)
 		
 		x_aff = denoise(x_aff, tol) 
 		s_aff = denoise(s_aff, tol)
-		λ_aff = denoise(λ_aff, tol)
+		λ_aff = denoise(λ_aff, tol)		
+		
+		if n_levels == n_levels_max
+			x_aff -= parametric_retrieve_infinitesimals(x_aff, n_levels_max)
+			s_aff -= parametric_retrieve_infinitesimals(s_aff, n_levels_max)
+			λ_aff -= parametric_retrieve_infinitesimals(λ_aff, n_levels_max)
+		else
+			x_aff = map(x->principal(x), x_aff)
+			s_aff = map(x->principal(x), s_aff)
+			λ_aff = map(x->principal(x), λ_aff)
+		end
 
 		###########################
-        # calculate α_aff, μ_aff #
+        # calculate α_aff, μ_aff  #
 		###########################
 
         α_aff_pri  = alpha_max(x,x_aff,1.0, n)
         α_aff_dual = alpha_max(s,s_aff,1.0, n)
 		
-		α_aff_pri  = principal(α_aff_pri)	#-= retrieve_infinitesimals(α_aff_pri, -1)
-		α_aff_dual = principal(α_aff_dual) 	#-= retrieve_infinitesimals(α_aff_dual, -1)
+		α_aff_pri  -= retrieve_infinitesimals(α_aff_pri, -1)
+		α_aff_dual -= retrieve_infinitesimals(α_aff_dual, -1)
 		
 		!linear && ((α_aff_pri <= α_aff_dual) ? α_aff_dual = α_aff_pri : α_aff_pri = α_aff_dual)
 		
-		μ = -mean(rxs)
+		# not used rxs because some info in it is cut out (optimization to avoid double calculus is possible)
+		μ = mean(x.*s)
         
 		target_x = denoise(x+α_aff_pri*x_aff, tol)
 		target_s = denoise(s+α_aff_dual*s_aff, tol)
 		target = denoise(target_x.*target_s./n, tol)
 		μ_aff = sum(target)
 		
-        σ = (μ_aff/μ)^3 # (μ==0) ? σ = 0 : σ = (μ_aff/μ)^3 #
+        σ = (μ_aff/μ)^3 #(μ==0) ? σ = 0 : σ = (μ_aff/μ)^3 # 
 		σ -= retrieve_infinitesimals(σ, -1)
 		
 		if show_more
@@ -164,19 +192,16 @@ function solve_standardqp(A,b,c,Q, tol=1e-8, maxit=100; verbose=false, genLatex=
         rb = zeros(m)
         rc = zeros(n)
         rxs = denoise(σ*μ.-α_aff_pri*α_aff_dual*x_aff.*s_aff, tol)
+		# Same choice of -2 as in previous rxs
+		rxs -= parametric_retrieve_infinitesimals(rxs, trash_deg_xs)
 		
-		rxs -= retrieve_infinitesimals(rxs, trash_deg)
+		if show_more
+			print("rxs: "); println(rxs)
+			println("")
+		end
 
         λ_cc,x_cc,s_cc = solve3(f3,rb,rc,rxs)
-		
-		# x_cc = map(x->principal(x), x_cc)
-		# s_cc = map(x->principal(x), s_cc)
-		# λ_cc = map(x->principal(x), λ_cc)
-		
-		x_cc -= retrieve_infinitesimals(x_cc, -n_levels)
-		s_cc -= retrieve_infinitesimals(s_cc, -n_levels)
-		λ_cc -= retrieve_infinitesimals(λ_cc, -n_levels)
-		
+
 		x_cc = denoise(x_cc, tol) 
 		s_cc = denoise(s_cc, tol)
 		λ_cc = denoise(λ_cc, tol)
@@ -197,20 +222,22 @@ function solve_standardqp(A,b,c,Q, tol=1e-8, maxit=100; verbose=false, genLatex=
         dx = x_aff+x_cc
         dλ = λ_aff+λ_cc
         ds = s_aff+s_cc
+
+		if n_levels == n_levels_max
+			dx -= parametric_retrieve_infinitesimals(dx, n_levels_max)
+			ds -= parametric_retrieve_infinitesimals(ds, n_levels_max)
+			dλ -= parametric_retrieve_infinitesimals(dλ, n_levels_max)
+		else
+			dx = map(x->principal(x), dx)
+			ds = map(x->principal(x), ds)
+			dλ = map(x->principal(x), dλ)
+		end
+
+        α_pri = min(0.99*alpha_max(x,dx,Inf, n),1)
+        α_dual = min(0.99*alpha_max(s,ds,Inf, n),1)
 		
-		# dx = map(x->principal(x), dx)
-		# ds = map(x->principal(x), ds)
-		# dλ = map(x->principal(x), dλ)
-		
-		dx -= retrieve_infinitesimals(dx, -n_levels)
-		ds -= retrieve_infinitesimals(ds, -n_levels)
-		dλ -= retrieve_infinitesimals(dλ, -n_levels)
-		
-        α_pri = min(0.99*alpha_max(x,dx,Inf, n),0.99)
-        α_dual = min(0.99*alpha_max(s,ds,Inf, n),0.99)
-		
-		α_pri  = principal(α_pri)  #-= retrieve_infinitesimals(α_pri, -1)
-		α_dual = principal(α_dual) #-= retrieve_infinitesimals(α_dual, -1)
+		α_pri  -= retrieve_infinitesimals(α_pri, -1)
+		α_dual -= retrieve_infinitesimals(α_dual, -1)
 		
 		!linear && ((α_pri <= α_dual) ? α_dual = α_pri : α_pri = α_dual)
 		
@@ -235,7 +262,7 @@ function solve_standardqp(A,b,c,Q, tol=1e-8, maxit=100; verbose=false, genLatex=
         λ = λ+α_dual*dλ
         s = s+α_dual*ds
 		
-		x = denoise(x, tol)
+		x = denoise(x, tol)		
 		s = denoise(s, tol)
 		λ = denoise(λ, tol)
 		
@@ -243,7 +270,7 @@ function solve_standardqp(A,b,c,Q, tol=1e-8, maxit=100; verbose=false, genLatex=
         # termination #
 		###############
 
-		cost_fun = dot(c_true,x)+0.5*x'*Q_true*x
+		cost_fun = dot(c,x)+0.5*x'*Q*x
 
 		# 10*tol is needed to avoid instabilities when computing the norm of a vector of BANs with ld(x) = 1e-8
 		# A more precise choice of the threshold comes from Theorem 4, think about adding it
@@ -251,23 +278,18 @@ function solve_standardqp(A,b,c,Q, tol=1e-8, maxit=100; verbose=false, genLatex=
 		r2 = norm(denoise(A'*λ+s-c-Q*x, 10*tol))
 		r3 = denoise(dot(x,s)/n, 10*tol)
 		
-		r1 -= retrieve_infinitesimals(r1, -n_levels)
-		r2 -= retrieve_infinitesimals(r2, -n_levels)
+		r1 -= retrieve_infinitesimals(r1, max_deg_b-n_levels)
+		r2 -= retrieve_infinitesimals(r2, max_deg_c-n_levels)
 		
 		r1 /= rb_den #(1+norm(b))
 		r2 /= rc_den #(1+norm(Q*x+c)) #(1+norm(c)) #
 		r3 /= (magnitude(cost_fun)+abs(cost_fun)) #(1+abs(cost_fun)) # 
 
-		r3 -= retrieve_infinitesimals(r3, trash_deg)
+		r3 -= parametric_retrieve_infinitesimals(r3, trash_deg_xs)
 
 		r1 -= retrieve_infinitesimals(r1, -n_levels)
 		r2 -= retrieve_infinitesimals(r2, -n_levels)
 		r3 -= retrieve_infinitesimals(r3, -n_levels)
-		
-		#Added because I think they are right, deeper investigation is needed
-		#r1 = principal(r1)
-		#r2 = principal(r2)
-		#r3 = principal(r3)
 
         if genLatex
 			print("\t$(iter) & \$"); print_latex(mean(x.*s)); print("\$ & \$"); print_latex(x[var_to_show]); print("\$ & \$"); print_latex(cost_fun); println("\$ \\\\");
@@ -275,7 +297,7 @@ function solve_standardqp(A,b,c,Q, tol=1e-8, maxit=100; verbose=false, genLatex=
 			r = [r
 				 r1 r2 r3];
 		elseif verbose
-            print(iter); print(" "); print(mean(x.*s)); print(" "); print(norm([A'*λ + s - c_true - Q_true*x; A*x - b; x.*s])/norm([b;c_true])); print(" "); print(α_pri); print(" "); println(α_dual); 
+            print(iter); print(" "); print(mean(x.*s)); print(" "); print(norm([A'*λ + s - c - Q*x; A*x - b; x.*s])/norm([b;c])); print(" "); print(α_pri); print(" "); println(α_dual); 
         end
 		
 		if show
@@ -301,7 +323,6 @@ function solve_standardqp(A,b,c,Q, tol=1e-8, maxit=100; verbose=false, genLatex=
 			println("")
 		end
 
-
         if (typeof(r1)<:Real) ? r1 < tol : all(z->abs(z) < tol, r1.num) 
 		
             #r2 = norm(A'*λ+s-c)/(1+norm(c))			
@@ -313,7 +334,11 @@ function solve_standardqp(A,b,c,Q, tol=1e-8, maxit=100; verbose=false, genLatex=
 
                 if (typeof(r3)<:Real) ? r3 < tol : all(z->abs(z) < tol, r3.num) 
 				
-					if all(x->x==0, _Q) && all(x->x==0, _c)
+					if n_levels == n_levels_max
+					
+						x -= parametric_retrieve_infinitesimals(x, levels_prim)
+						s -= parametric_retrieve_infinitesimals(s, levels_dual)
+						λ -= parametric_retrieve_infinitesimals(λ, levels_dual)
 
 						flag = true;
 						if show
@@ -323,19 +348,17 @@ function solve_standardqp(A,b,c,Q, tol=1e-8, maxit=100; verbose=false, genLatex=
 							print("OPTIMAL SOLUTION λ: "); println(λ); println("")
 							println("")
 						end
-						
-						x -= retrieve_infinitesimals(x, -1)
-						s -= retrieve_infinitesimals(s, -n_levels)
-						λ -= retrieve_infinitesimals(λ, -n_levels)
-						
+
 						return x,λ,s,flag,iter,r
 						
 					else
-						
+						# careful, maybe a too big cut
+						# TODO use the theoretical threshold x,s<sqrt(n*tol)
 						x = denoise(x, tol*n)
 						s = denoise(s, tol*n)
 						λ = denoise(λ, tol*n)
 						
+						# infinitesimal noise addition (it is infinitesimal w.r.t. the active entry)
 						N = map(x->x==0, x) # mask inactive/active entries of x/s
 						B = .~N
 						x[N] += map(x->η^(1-x),x_deg[N])
@@ -343,15 +366,6 @@ function solve_standardqp(A,b,c,Q, tol=1e-8, maxit=100; verbose=false, genLatex=
 
 						x_deg[N] .-= 1
 						s_deg[B] .-= 1
-						
-						max_deg_Q -= 1
-						max_deg_c -= 1
-						
-						_Q = map(x->retrieve_infinitesimals(x, max_deg_Q), Q_true)
-						_c = map(x->retrieve_infinitesimals(x, max_deg_c), c_true)
-						
-						Q = Q_true - _Q
-						c = c_true - _c
 						
 						n_levels += 1
 					end
@@ -361,4 +375,8 @@ function solve_standardqp(A,b,c,Q, tol=1e-8, maxit=100; verbose=false, genLatex=
     end
 
     return x,λ,s,flag,iter,r
+end
+
+@inline function parametric_retrieve_infinitesimals(x, d)
+	return map(z->retrieve_infinitesimals(z, degree(z)-d), x)
 end

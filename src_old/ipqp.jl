@@ -39,7 +39,7 @@ norm([A'*lam + s - c; A*x - b; x.*s])/norm([b;c]) <= tol
 and fails if this takes more than maxit iterations.
 """
 
-function ipqp(A::Matrix,b::Vector,c::Vector,Q::Matrix,tol; maxit=100, verbose=false, genLatex=false, slack_var=[])
+function ipqp(A,b,c,Q,tol; maxit=100, verbose=false, genLatex=false, slack_var=[])
     
 	###################
 	# test input data #

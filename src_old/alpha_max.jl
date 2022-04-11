@@ -3,11 +3,11 @@ compute
     arg max{ alpha in [0,hi] | x + alpha*dx >=0 }
 
 """
-function alpha_max(x,dx,hi)
+function alpha_max(x,dx,hi, n)
 
     alpha = -1.0
 
-    for i in eachindex(x)
+    for i=1:n
         if dx[i] < 0
 
             a = -x[i]/dx[i]

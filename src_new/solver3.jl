@@ -1,16 +1,16 @@
 # unreduced form
 
-function fact3(A,Q,x,s)
+function fact3(A,Q,x,s, tol)
     m,n = size(A)
-
-#           dλ        dx        ds
-    M = [zeros(m,m)  A       zeros(m,n);
-	     A'         -Q       I; #Matrix{Float64}(I,n,n);
-	     zeros(n,m) diagm(s) diagm(x)]
+	
+#                 dλ       dx        ds
+		M = [zeros(m,m)     A       zeros(m,n);
+				A'         -Q       I; 
+			 zeros(n,m) diagm(s)   diagm(x)]
 
     f = lu(M)
-
-    #return M, f
+	f = LU{eltype(M),typeof(M)}(denoise(f.factors, tol), f.ipiv, f.info)
+	
     return f
 end
 
@@ -22,7 +22,7 @@ function solve3(f,rb,rc,rxs)
 
     dλ = b[1:m]
     dx = b[1+m:m+n]
-    ds = b[1+m+n:m+2*n]
+    ds = b[1+m+n:end]
 
     return dλ,dx,ds
 end
