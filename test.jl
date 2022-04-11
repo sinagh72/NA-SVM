@@ -150,8 +150,8 @@ for i ∈ 1:n_tc
 end
 # save_object("train_data/linear_b6_30-4_x1.jld2",x1);
 # save_object("train_data/linear_b6_30-4_x2.jld2",x2);
-# x1 = load_object("train_data/linear_b8_20-4_x1.jld2");
-# x2 = load_object("train_data/linear_b8_20-4_x2.jld2");
+x1 = load_object("train_data/linear_b2_20-4_x1.jld2");
+x2 = load_object("train_data/linear_b2_20-4_x2.jld2");
 idx = 2; #last col index of accessible features
 #data prepration
 x1[1][:,1:end-1]
@@ -164,6 +164,9 @@ kernel_params = Dict("type" => "linear", "π" => 1.0, "γ" => 1.0, "ξ" => 1.0, 
 nrm = false;
 x_train, _, normalizer = preprocess(X,X; normalize=nrm, standardize=!nrm); #normalization/standardization
 model, w_s, b_s, λ_s, λ_idx_s = standard_svm(x_train, Y); #standard approach
+b_s
+w_s
+λ_idx_s
 sol, w_ns, b_ns, λ_ns, λ_idx_ns, X, K, Q = fit(x_train, Y, idx, maxit=25, kernel_params=kernel_params, M=Ban(η)); #non standard approach
 #generating test data
 n_test = 6;
@@ -177,6 +180,7 @@ x2_t = [sample_generator(n_test, 1, -m*1, std_) sample_generator(n_test, 1,  -m*
 y_test = [x1_t[:,end];x2_t[:,end]]
 X_test = [x1_t[:,1:end-1];x2_t[:,1:end-1]]
 score = 0;
+X_test
 # x_test, _, _ = preprocess(X_test,X_test; normalize=nrm, standardize=!nrm)
 x_test = StatsBase.transform(normalizer, X_test);
 x_test
